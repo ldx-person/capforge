@@ -1,0 +1,27 @@
+{
+  "name": "capforge",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "description": "CapForge（铸能）- 从 GitHub 开源项目中锻造可复用的能力资产",
+  "main": "dist/cli.js",
+  "bin": {
+    "capforge": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc && cp -r src/skills dist/skills",
+    "start": "node dist/cli.js",
+    "dev": "ts-node src/cli.ts"
+  },
+  "keywords": ["github", "capability", "forge", "agent", "analysis", "skill", "claude-code"],
+  "author": "Autsin Liu",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^12.1.0",
+    "glob": "^10.3.10"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "@types/node": "^20.14.0",
+    "ts-node": "^10.9.2"
+  }
+}

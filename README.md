@@ -61,9 +61,29 @@ npx capforge status
 npx capforge uninstall
 ```
 
+> 说明：Claude Code 新版推荐使用 `~/.claude/skills/<name>/SKILL.md`。  
+> CapForge 的 `install` 会同时写入：
+> - **推荐（新版）**：`~/.claude/skills/capforge/SKILL.md`、`~/.claude/skills/capforge-refactor/SKILL.md`
+> - **兼容（旧版）**：`~/.claude/commands/capforge.md`、`~/.claude/commands/capforge-refactor.md`
+>
+> 安装后需要**完全重启 Claude Code**（退出当前会话/应用，再重新打开）。
+
 安装后，在 Claude Code 中直接使用：
 - `/capforge` — 分析项目、生成能力描述、改造计划、域归类
 - `/capforge-refactor` — 按改造计划执行代码重构
+
+#### 排错：安装后看不到 /capforge
+
+1. 先确认文件是否写入成功：
+   ```bash
+   npx capforge status
+   ls -la ~/.claude/skills/capforge
+   ```
+2. 确认你使用的是 **Claude Code CLI**（终端里运行的 `claude`），而不是 Claude 网页/桌面聊天界面：
+   ```bash
+   claude --version
+   ```
+3. 完全重启 Claude Code 后再试：在 Claude Code CLI 输入 `/capforge` 并回车。
 
 ## 使用
 
@@ -84,6 +104,19 @@ npx capforge scan hermes-agent
 
 # 4. 开发新功能时自动检索已有能力库（自动触发）
 ```
+
+### 工作空间（Workspace）
+
+CapForge 会把**克隆仓库（repos）**和**生成的 Markdown（output）**统一放到同一个工作空间目录下，避免你在不同目录运行命令导致产物分散。
+
+默认工作空间：
+- `~/.capforge/`
+  - `repos/`：克隆的项目
+  - `output/`：capability / transform-plan / domains / validation-report 等
+
+覆盖方式：
+- 环境变量：`CAPFORGE_WORKSPACE=/path/to/workspace`
+- CLI 参数：`npx capforge --workspace /path/to/workspace <command>`
 
 ### 命令参考
 

@@ -31,54 +31,76 @@ CapForge **不做 LLM 分析**。它的分工是：
 ## 安装
 
 ```bash
+# 克隆项目
+git clone https://github.com/ldx-person/capforge.git
+cd capforge
+
+# 安装依赖并编译
 npm install
 npm run build
+
+# 全局安装（可选）
+npm install -g .
 ```
+
+### 安装到 Claude Code
+
+CapForge 通过 skill 方式注入 Claude Code，安装后可在任意项目中使用：
+
+```bash
+# 安装 skills（将 /capforge 和 /capforge-refactor 注入 Claude Code）
+npx capforge install
+
+# 覆盖已有安装
+npx capforge install --force
+
+# 查看安装状态
+npx capforge status
+
+# 卸载
+npx capforge uninstall
+```
+
+安装后，在 Claude Code 中直接使用：
+- `/capforge` — 分析项目、生成能力描述、改造计划、域归类
+- `/capforge-refactor` — 按改造计划执行代码重构
 
 ## 使用
 
-### CLI 命令
+### 快速开始
 
 ```bash
-# 导入单个项目
+# 1. 导入并扫描一个 GitHub 项目
 npx capforge import https://github.com/nousresearch/hermes-agent
-
-# 扫描已导入的项目（文件树、依赖、入口文件、模块结构）
 npx capforge scan hermes-agent
 
-# 生成扫描数据 Markdown（交给 Claude Code 生成 capability.md）
-npx capforge describe hermes-agent
+# 2. 在 Claude Code 中使用 /capforge 自动完成：
+#    - 生成 capability.md（能力描述）
+#    - 生成 transform-plan.md（改造计划）
+#    - 更新 domains.md（域归类）
+#    - 验证格式
 
-# 生成改造扫描数据（交给 Claude Code 生成改造计划）
-npx capforge transform hermes-agent
+# 3. 确认后自动执行改造（可选）
 
-# 列出所有 capability.md 文件并生成能力域归类
-npx capforge classify-domains
-
-# 验证 capability.md 文件是否包含必要部分
-npx capforge validate
-
-# 列出已导入的项目
-npx capforge list
-
-# 安装/卸载 CapForge skills
-npx capforge install [--force]
-npx capforge uninstall
-npx capforge status
+# 4. 开发新功能时自动检索已有能力库（自动触发）
 ```
 
-### 短名映射
+### 命令参考
 
-| 短名 | 项目 | URL |
-|------|------|-----|
-| agent0 | agent-zero | https://github.com/agent0ai/agent-zero |
-| evoskill | EvoSkill | https://github.com/sentient-agi/EvoSkill |
-| hermes-agent | hermes-agent | https://github.com/nousresearch/hermes-agent |
-| hyperagents | Hyperagents | https://github.com/facebookresearch/Hyperagents |
-| metaclaw | MetaClaw | https://github.com/aiming-lab/MetaClaw |
-| openclaw-rl | OpenClaw-RL | https://github.com/Gen-Verse/OpenClaw-RL |
+| 命令 | 说明 |
+|------|------|
+| `capforge import <url>` | 克隆 GitHub 仓库 |
+| `capforge scan <name>` | 扫描代码结构 |
+| `capforge describe <name>` | 输出扫描数据 |
+| `capforge transform <name>` | 输出改造扫描数据 |
+| `capforge classify-domains` | 列出 capability.md 并归类 |
+| `capforge validate` | 校验 capability.md 格式 |
+| `capforge list` | 列出已导入项目 |
+| `capforge install` | 安装 skills 到 Claude Code |
+| `capforge uninstall` | 卸载 skills |
+| `capforge status` | 查看 skill 安装状态 |
 
-## 项目结构
+## 核心流程
 
 ```
 capforge/
@@ -113,7 +135,11 @@ capforge/
 5. **Classify Domains** - 列出所有 capability.md 文件，生成能力域归类摘要
 6. **Validate** - 验证 capability.md 文件包含必要部分（## 概述, ## 核心能力, ## 集成指南, ## 改造文件, ## 技术栈）
 
-## capability.md 格式
+## 输出格式
+
+所有输出都是 Markdown 格式，agent 可读、人类可读。
+
+### capability.md — 能力描述
 
 ```markdown
 # <Project Name>
@@ -146,24 +172,42 @@ capforge/
 <list of key files>
 ```
 
-## 开发
+### transform-plan.md — 改造计划
 
-```bash
-npm run build
-npm install -g .  # 全局安装（可选）
-npx tsc --noEmit     # 类型检查
+```markdown
+# <Project> 改造计划
+
+## 总体策略
+<总体改造建议>
+
+## 改造任务
+
+### [high] Task 1: <title>
+- **目标文件:** <targetFile>
+- **动作:** extract|abstract|dehardcode|decouple|adapter
+- **依赖:** <task ids>
+- **描述:** <具体改造描述>
+- **验收标准:** <如何验证完成>
+```
+
+### domains.md — 能力域归类
+
+```markdown
+# 能力域归类
+
+## <domain-name>
+<域描述>
+
+### 参与项目
+- **<project-name>** — <贡献的能力列表>
+
+### 公共能力
+<跨项目公共能力>
+
+### 项目差异
+- **<project>**: <方案> — <优势> — 适用于<场景>
 ```
 
 ## License
 
-MIT
-
-## Claude Code 集成
-
-CapForge 支持 Claude Code skill 注入：
-
-```bash
-npx capforge install --force
-```
-
-安装后可在 Claude Code 中使用 `/capforge` 和 `/capforge-refactor` 命令。
+MIT © 2026 Autsin Liu

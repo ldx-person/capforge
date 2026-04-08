@@ -46,14 +46,30 @@ program
   .command("import <repo>")
   .description("克隆 GitHub 仓库到本地 repos/ 目录")
   .option("--no-shallow", "完整克隆（不使用 --depth 1）")
-  .action(async (repo: string, opts: { shallow: boolean }) => {
+  .option("--no-update", "如果仓库已存在则不做增量更新（默认会 fetch/pull）")
+  .option("--force-update", "强制增量更新（会丢弃本地改动，危险）")
+  .action(async (repo: string, opts: { shallow: boolean; update: boolean; forceUpdate?: boolean }) => {
     const workspaceRoot = getWorkspaceRoot();
     const known = resolveKnownRepo(repo);
     const url = known?.url ?? repo;
     try {
-      const result = await cloneRepo(url, { shallow: opts.shallow, baseDir: workspaceRoot });
+      const result = await cloneRepo(url, {
+        shallow: opts.shallow,
+        baseDir: workspaceRoot,
+        update: opts.update,
+        forceUpdate: !!opts.forceUpdate,
+      });
       if (result.alreadyExists) {
-        console.log(`Already cloned: ${result.alias} (${result.repoDir})`);
+        if (result.updated) {
+          console.log(`Updated: ${result.alias} (${result.repoDir})`);
+        } else {
+          console.log(`Already exists: ${result.alias} (${result.repoDir})`);
+        }
+        if (result.updateMessage) {
+          console.log(`Update: ${result.updateMessage}`);
+        } else if (result.updateSkipped) {
+          console.log("Update: skipped");
+        }
       } else {
         console.log(`Cloned: ${result.alias} -> ${result.repoDir}`);
       }

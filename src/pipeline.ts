@@ -176,7 +176,8 @@ async function ensureProject(input: string, workspaceRoot: string): Promise<{ na
 
   const isUrl = /^https?:\/\//.test(resolvedUrl) || resolvedUrl.includes("github.com/");
   if (isUrl) {
-    const result = await cloneRepo(resolvedUrl, { baseDir: workspaceRoot, shallow: true });
+    // Pipeline default: keep repos fresh via incremental update.
+    const result = await cloneRepo(resolvedUrl, { baseDir: workspaceRoot, shallow: true, update: true });
     return { name: result.alias, repoDir: result.repoDir };
   }
 
@@ -195,7 +196,7 @@ async function ensureProject(input: string, workspaceRoot: string): Promise<{ na
   // fallback: treat as URL-ish
   if (trimmed.includes("/")) {
     const url = trimmed.startsWith("http") ? trimmed : `https://github.com/${trimmed}`;
-    const result = await cloneRepo(url, { baseDir: workspaceRoot, shallow: true });
+    const result = await cloneRepo(url, { baseDir: workspaceRoot, shallow: true, update: true });
     return { name: result.alias, repoDir: result.repoDir };
   }
 
@@ -267,4 +268,3 @@ function toKebab(s: string): string {
 function safeStamp(iso: string): string {
   return iso.replace(/[:.]/g, "").replace("T", "-").replace("Z", "");
 }
-

@@ -53,17 +53,43 @@ export function reposDir(baseDir?: string): string {
 
 /**
  * Clone a GitHub repository into the local repos/ directory.
- * Skips if the directory already exists.
+ * If the directory already exists, can optionally do an incremental update (git fetch/pull).
  */
 export async function cloneRepo(
   repoUrl: string,
-  options?: { baseDir?: string; shallow?: boolean }
-): Promise<{ repoDir: string; alias: string; alreadyExists: boolean }> {
+  options?: { baseDir?: string; shallow?: boolean; update?: boolean; forceUpdate?: boolean }
+): Promise<{
+  repoDir: string;
+  alias: string;
+  alreadyExists: boolean;
+  updated: boolean;
+  updateSkipped: boolean;
+  updateMessage?: string;
+}> {
   const alias = projectAliasFromUrl(repoUrl);
   const dir = path.join(reposDir(options?.baseDir), alias);
 
   if (fs.existsSync(dir)) {
-    return { repoDir: dir, alias, alreadyExists: true };
+    // If not a git repo, treat as error (avoid pulling into random folders)
+    if (!fs.existsSync(path.join(dir, ".git"))) {
+      throw new Error(`Target exists but is not a git repo: ${dir}`);
+    }
+
+    // Default: do incremental update unless explicitly disabled
+    const doUpdate = options?.update !== false;
+    if (!doUpdate) {
+      return { repoDir: dir, alias, alreadyExists: true, updated: false, updateSkipped: true };
+    }
+
+    const updateResult = await updateRepo(dir, { force: !!options?.forceUpdate });
+    return {
+      repoDir: dir,
+      alias,
+      alreadyExists: true,
+      updated: updateResult.updated,
+      updateSkipped: updateResult.skipped,
+      updateMessage: updateResult.message,
+    };
   }
 
   fs.mkdirSync(path.dirname(dir), { recursive: true });
@@ -83,7 +109,7 @@ export async function cloneRepo(
   }
 
   console.log(`Cloned to ${dir}`);
-  return { repoDir: dir, alias, alreadyExists: false };
+  return { repoDir: dir, alias, alreadyExists: false, updated: false, updateSkipped: false };
 }
 
 /**
@@ -96,4 +122,54 @@ export function listClonedProjects(baseDir?: string): string[] {
     const p = path.join(dir, name);
     return fs.statSync(p).isDirectory() && fs.existsSync(path.join(p, ".git"));
   });
+}
+
+async function updateRepo(
+  repoDir: string,
+  opts: { force: boolean }
+): Promise<{ updated: boolean; skipped: boolean; message: string }> {
+  // Check dirty state
+  try {
+    const { stdout } = await execAsync(`git -C ${quote(repoDir)} status --porcelain`, { timeout: 60_000 });
+    const dirty = stdout.trim().length > 0;
+    if (dirty && !opts.force) {
+      return {
+        updated: false,
+        skipped: true,
+        message: "Local changes detected (dirty working tree). Skipping update. Use --force-update to discard changes.",
+      };
+    }
+
+    if (dirty && opts.force) {
+      // Danger: discard local changes; explicit opt-in only
+      await execAsync(`git -C ${quote(repoDir)} reset --hard`, { timeout: 120_000 });
+      await execAsync(`git -C ${quote(repoDir)} clean -fd`, { timeout: 120_000 });
+    }
+
+    // Fetch updates
+    await execAsync(`git -C ${quote(repoDir)} fetch --all --prune`, { timeout: 300_000 });
+
+    // Pull fast-forward only (safe default)
+    const pullCmd = `git -C ${quote(repoDir)} pull --ff-only`;
+    try {
+      const { stdout: pullOut, stderr: pullErr } = await execAsync(pullCmd, { timeout: 300_000 });
+      const msg = (pullOut || pullErr || "").trim() || "Updated.";
+      return { updated: true, skipped: false, message: msg };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        updated: false,
+        skipped: true,
+        message: `Update skipped (non-fast-forward or other issue). ${message}`,
+      };
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { updated: false, skipped: true, message: `Update failed: ${message}` };
+  }
+}
+
+function quote(p: string): string {
+  // simple shell quoting for paths
+  return `'${p.replace(/'/g, "'\\''")}'`;
 }

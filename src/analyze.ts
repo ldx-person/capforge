@@ -5,7 +5,7 @@
 import * as path from "path";
 import * as fs from "fs";
 import { glob } from "glob";
-import type { ScanResult, ImportExportSummary } from "./types";
+import type { ScanResult, ImportExportSummary, ImportExportFileDetail } from "./types";
 
 /**
  * Perform pure structural analysis of a cloned project.
@@ -66,8 +66,41 @@ export function scanResultToMarkdown(result: ScanResult): string {
   lines.push(`- **总文件数:** ${result.importExports.totalFiles}`);
   lines.push(`- **含导出的文件:** ${result.importExports.filesWithExports}`);
   lines.push(`- **含导入的文件:** ${result.importExports.filesWithImports}`);
-  lines.push(`- **高频导入:** ${result.importExports.topImports.join(", ") || "无"}`);
-  lines.push(`- **高频导出:** ${result.importExports.topExports.join(", ") || "无"}`);
+  lines.push(
+    `- **导出形态:** ESM default=${result.importExports.exportStyle.esmDefaultExportFiles}, ESM named=${result.importExports.exportStyle.esmNamedExportFiles}, CJS=${result.importExports.exportStyle.cjsExportFiles}`
+  );
+  lines.push(
+    `- **高频外部导入(含次数):** ${
+      result.importExports.topExternalImportStats
+        .slice(0, 10)
+        .map((x) => `${x.name}(${x.count})`)
+        .join(", ") || "无"
+    }`
+  );
+  lines.push(
+    `- **高频内部导入(含次数):** ${
+      result.importExports.topInternalImportStats
+        .slice(0, 10)
+        .map((x) => `${x.name}(${x.count})`)
+        .join(", ") || "无"
+    }`
+  );
+  lines.push(
+    `- **高频导出(含次数):** ${
+      result.importExports.topExportStats
+        .slice(0, 10)
+        .map((x) => `${x.name}(${x.count})`)
+        .join(", ") || "无"
+    }`
+  );
+  lines.push(
+    `- **高频 re-export 来源(含次数):** ${
+      result.importExports.topReExportSources
+        .slice(0, 10)
+        .map((x) => `${x.name}(${x.count})`)
+        .join(", ") || "无"
+    }`
+  );
 
   lines.push("", "---", "");
   lines.push("将以上扫描结果交给 Claude Code，让它根据结构分析生成 `capability.md`。");
@@ -235,81 +268,218 @@ function scanImportExports(repoDir: string, files: string[]): ImportExportSummar
       !f.includes("node_modules")
   );
 
+  const MAX_SCAN_FILES = Number.parseInt(process.env.CAPFORGE_IMPORT_EXPORT_MAX_FILES ?? "2000", 10);
+  const MAX_DETAILS_FILES = Number.parseInt(process.env.CAPFORGE_IMPORT_EXPORT_MAX_DETAILS ?? "300", 10);
+
   let filesWithExports = 0;
   let filesWithImports = 0;
-  const importCounts = new Map<string, number>();
-  const exportSymbols: string[] = [];
+  let esmDefaultExportFiles = 0;
+  let esmNamedExportFiles = 0;
+  let cjsExportFiles = 0;
 
-  for (const file of codeFiles.slice(0, 200)) {
+  const externalImportCounts = new Map<string, number>();
+  const internalImportCounts = new Map<string, number>();
+  const allImportCounts = new Map<string, number>();
+  const exportCounts = new Map<string, number>();
+  const reExportCounts = new Map<string, number>();
+
+  const fileDetails: ImportExportFileDetail[] = [];
+
+  const scanned = codeFiles.slice(0, Math.max(1, MAX_SCAN_FILES));
+  for (const file of scanned) {
     const fullPath = path.join(repoDir, file);
     try {
       const content = fs.readFileSync(fullPath, "utf-8");
 
-      const hasExport =
-        content.includes("export ") ||
-        content.includes("module.exports") ||
-        (file.endsWith(".py") && /^(def|class|async def) \w+/m.test(content));
-      const hasImport =
-        content.includes("import ") ||
-        content.includes("require(") ||
-        (file.endsWith(".py") && content.includes("import "));
+      const detail = analyzeOneFile(file, content);
 
-      if (hasExport) filesWithExports++;
-      if (hasImport) filesWithImports++;
+      if (detail.imports.length > 0) filesWithImports++;
+      if (detail.exports.length > 0 || detail.reExports.length > 0 || detail.exportStyle.cjs || detail.exportStyle.esmDefault || detail.exportStyle.esmNamed) {
+        filesWithExports++;
+      }
 
-      // Extract import sources (TS/JS)
-      const importMatches = content.matchAll(/import\s+.*?from\s+['"]([^'"]+)['"]/g);
-      for (const m of importMatches) {
-        const src = m[1];
-        // Only count package imports (not relative)
-        if (!src.startsWith(".")) {
-          importCounts.set(src, (importCounts.get(src) ?? 0) + 1);
+      if (detail.exportStyle.esmDefault) esmDefaultExportFiles++;
+      if (detail.exportStyle.esmNamed) esmNamedExportFiles++;
+      if (detail.exportStyle.cjs) cjsExportFiles++;
+
+      for (const imp of detail.imports) {
+        allImportCounts.set(imp, (allImportCounts.get(imp) ?? 0) + 1);
+        if (isInternalImport(imp, detail.language)) {
+          internalImportCounts.set(imp, (internalImportCounts.get(imp) ?? 0) + 1);
+        } else {
+          externalImportCounts.set(imp, (externalImportCounts.get(imp) ?? 0) + 1);
         }
       }
 
-      // Python imports — strip trailing commas/parens/as
-      if (file.endsWith(".py")) {
-        const pyImports = content.matchAll(/(?:^|\n)\s*import\s+([^\n]+)/g);
-        for (const m of pyImports) {
-          const raw = m[1].replace(/\s*as\s+\w+/, "").replace(/[(),]/g, "");
-          for (const part of raw.split(/\s+/)) {
-            const src = part.trim();
-            if (src && !src.startsWith(".")) {
-              importCounts.set(src, (importCounts.get(src) ?? 0) + 1);
-            }
-          }
-        }
-        const pyFromImports = content.matchAll(/(?:^|\n)\s*from\s+(\S+)\s+import/g);
-        for (const m of pyFromImports) {
-          const src = m[1];
-          if (!src.startsWith(".")) {
-            importCounts.set(src, (importCounts.get(src) ?? 0) + 1);
-          }
-        }
+      for (const exp of detail.exports) {
+        exportCounts.set(exp, (exportCounts.get(exp) ?? 0) + 1);
+      }
+      for (const src of detail.reExports) {
+        reExportCounts.set(src, (reExportCounts.get(src) ?? 0) + 1);
       }
 
-      // Extract export names (TS)
-      const exportMatches = content.matchAll(/export\s+(?:function|class|const|interface|type)\s+(\w+)/g);
-      for (const m of exportMatches) {
-        exportSymbols.push(m[1]);
+      if (fileDetails.length < MAX_DETAILS_FILES) {
+        fileDetails.push(detail);
       }
     } catch {
-      // skip
+      // skip unreadable files
     }
   }
 
-  const topImports = Array.from(importCounts.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 20)
-    .map(([name]) => name);
-
-  const topExports = exportSymbols.slice(0, 20);
+  const topImportStats = toTopStats(allImportCounts, 50);
+  const topExternalImportStats = toTopStats(externalImportCounts, 50);
+  const topInternalImportStats = toTopStats(internalImportCounts, 50);
+  const topExportStats = toTopStats(exportCounts, 50);
+  const topReExportSources = toTopStats(reExportCounts, 50);
 
   return {
     totalFiles: codeFiles.length,
     filesWithExports,
     filesWithImports,
-    topImports,
-    topExports,
+    topImports: topImportStats.slice(0, 20).map((x) => x.name),
+    topExports: topExportStats.slice(0, 20).map((x) => x.name),
+    topImportStats,
+    topExternalImportStats,
+    topInternalImportStats,
+    topExportStats,
+    topReExportSources,
+    exportStyle: {
+      esmDefaultExportFiles,
+      esmNamedExportFiles,
+      cjsExportFiles,
+    },
+    fileDetails,
+  };
+}
+
+function toTopStats(map: Map<string, number>, limit: number): Array<{ name: string; count: number }> {
+  return Array.from(map.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([name, count]) => ({ name, count }));
+}
+
+function detectLanguage(file: string): ImportExportFileDetail["language"] {
+  if (file.endsWith(".ts") || file.endsWith(".tsx")) return "ts";
+  if (file.endsWith(".js") || file.endsWith(".jsx")) return "js";
+  if (file.endsWith(".py")) return "py";
+  if (file.endsWith(".go")) return "go";
+  if (file.endsWith(".rs")) return "rs";
+  return "other";
+}
+
+function isInternalImport(source: string, lang: ImportExportFileDetail["language"]): boolean {
+  // JS/TS relative + alias-like paths
+  if (source.startsWith(".") || source.startsWith("/") || source.startsWith("~")) return true;
+  // Python relative
+  if (lang === "py" && source.startsWith(".")) return true;
+  // Go: internal imports often contain the module path; best-effort treat "github.com/..." as external
+  if (lang === "go") {
+    return !(source.startsWith("github.com/") || source.includes("."));
+  }
+  // treat scoped/node packages as external by default
+  return false;
+}
+
+function analyzeOneFile(file: string, content: string): ImportExportFileDetail {
+  const language = detectLanguage(file);
+  const imports: string[] = [];
+  const exports: string[] = [];
+  const reExports: string[] = [];
+  const style = { esmDefault: false, esmNamed: false, cjs: false };
+
+  if (language === "ts" || language === "js") {
+    // ----- imports -----
+    for (const m of content.matchAll(/import\s+(?:type\s+)?[\s\S]*?\sfrom\s+['"]([^'"]+)['"]/g)) {
+      imports.push(m[1]);
+    }
+    for (const m of content.matchAll(/import\s*\(\s*['"]([^'"]+)['"]\s*\)/g)) {
+      imports.push(m[1]);
+    }
+    for (const m of content.matchAll(/require\s*\(\s*['"]([^'"]+)['"]\s*\)/g)) {
+      imports.push(m[1]);
+    }
+
+    // ----- exports -----
+    if (/export\s+default\s+/m.test(content)) style.esmDefault = true;
+    if (/export\s+(?:\{|\*)/m.test(content) || /export\s+(?:async\s+)?(?:function|class|const|let|var|interface|type|enum)\s+\w+/m.test(content)) {
+      style.esmNamed = true;
+    }
+    if (/module\.exports\s*=|exports\.\w+\s*=|Object\.defineProperty\(exports,/m.test(content)) style.cjs = true;
+
+    // named exports (best-effort)
+    for (const m of content.matchAll(/export\s+(?:async\s+)?(?:function|class)\s+(\w+)/g)) exports.push(m[1]);
+    for (const m of content.matchAll(/export\s+(?:const|let|var)\s+(\w+)/g)) exports.push(m[1]);
+    for (const m of content.matchAll(/export\s+(?:interface|type|enum)\s+(\w+)/g)) exports.push(m[1]);
+    // export { a, b as c }
+    for (const m of content.matchAll(/export\s*\{\s*([^}]+)\s*\}\s*(?:from\s*['"]([^'"]+)['"])?/g)) {
+      const raw = m[1];
+      const from = m[2];
+      if (from) reExports.push(from);
+      for (const part of raw.split(",")) {
+        const name = part.trim().split(/\s+as\s+/)[0]?.trim();
+        if (name) exports.push(name);
+      }
+    }
+    // export * from 'x'
+    for (const m of content.matchAll(/export\s+\*\s+from\s+['"]([^'"]+)['"]/g)) {
+      reExports.push(m[1]);
+    }
+    // CommonJS exports.foo =
+    for (const m of content.matchAll(/exports\.(\w+)\s*=/g)) exports.push(m[1]);
+  } else if (language === "py") {
+    // imports
+    for (const m of content.matchAll(/(?:^|\n)\s*import\s+([^\n#]+)/g)) {
+      const raw = m[1].trim();
+      for (const part of raw.split(",")) {
+        const name = part.trim().replace(/\s+as\s+\w+$/, "");
+        if (name) imports.push(name);
+      }
+    }
+    for (const m of content.matchAll(/(?:^|\n)\s*from\s+([^\s]+)\s+import\s+([^\n#]+)/g)) {
+      const mod = m[1].trim();
+      imports.push(mod);
+      // exported names not inferred here; but capture __all__ or defs/classes
+    }
+    // exports (best-effort: top-level def/class + __all__)
+    for (const m of content.matchAll(/(?:^|\n)(?:async\s+def|def|class)\s+(\w+)\s*[\(:]/g)) {
+      exports.push(m[1]);
+    }
+    const allMatch = content.match(/__all__\s*=\s*\[([^\]]*)\]/m);
+    if (allMatch) {
+      for (const s of allMatch[1].split(",")) {
+        const name = s.trim().replace(/^['"]|['"]$/g, "");
+        if (name) exports.push(name);
+      }
+    }
+  } else if (language === "go") {
+    // imports
+    for (const m of content.matchAll(/(?:^|\n)\s*import\s+\(\s*([\s\S]*?)\s*\)/g)) {
+      const block = m[1];
+      for (const line of block.split("\n")) {
+        const mm = line.match(/"([^"]+)"/);
+        if (mm) imports.push(mm[1]);
+      }
+    }
+    for (const m of content.matchAll(/(?:^|\n)\s*import\s+"([^"]+)"/g)) {
+      imports.push(m[1]);
+    }
+    // exports: exported identifiers in Go start with uppercase (best-effort)
+    for (const m of content.matchAll(/(?:^|\n)\s*func\s+([A-Z]\w*)\s*\(/g)) exports.push(m[1]);
+    for (const m of content.matchAll(/(?:^|\n)\s*type\s+([A-Z]\w*)\s+/g)) exports.push(m[1]);
+    for (const m of content.matchAll(/(?:^|\n)\s*var\s+([A-Z]\w*)\s+/g)) exports.push(m[1]);
+    for (const m of content.matchAll(/(?:^|\n)\s*const\s+([A-Z]\w*)\s+/g)) exports.push(m[1]);
+  }
+
+  const uniq = <T,>(arr: T[]) => Array.from(new Set(arr));
+  const normalized = (s: string) => s.trim();
+
+  return {
+    file,
+    language,
+    imports: uniq(imports.map(normalized)).filter(Boolean),
+    exports: uniq(exports.map(normalized)).filter(Boolean),
+    reExports: uniq(reExports.map(normalized)).filter(Boolean),
+    exportStyle: style,
   };
 }

@@ -3,6 +3,7 @@
 import * as path from "path";
 import * as fs from "fs";
 import { listCapabilityFiles, loadCapabilityFile } from "./describe";
+import { outputDir as outputDirFromWorkspace } from "./workspace";
 
 interface DomainDef {
   id: string;
@@ -172,7 +173,7 @@ export function classifyDomains(outputDir?: string): {
  * Save domains summary as Markdown.
  */
 export function saveDomainsManifest(markdown: string, outputDir?: string): string {
-  const dir = outputDir ?? path.resolve(process.cwd(), "output");
+  const dir = outputDir ?? outputDirFromWorkspace();
   fs.mkdirSync(dir, { recursive: true });
 
   const filePath = path.join(dir, "domains.md");

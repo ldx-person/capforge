@@ -10,6 +10,7 @@ import { exec } from "child_process";
 const execAsync = util.promisify(exec);
 
 import type { KnownRepo } from "./types";
+import { reposDir as reposDirFromWorkspace } from "./workspace";
 
 /** Well-known validation repos */
 export const KNOWN_REPOS: KnownRepo[] = [
@@ -47,7 +48,7 @@ export function projectAliasFromUrl(url: string): string {
  * Return the absolute path to the repos directory.
  */
 export function reposDir(baseDir?: string): string {
-  return path.resolve(baseDir ?? process.cwd(), "repos");
+  return reposDirFromWorkspace(baseDir);
 }
 
 /**

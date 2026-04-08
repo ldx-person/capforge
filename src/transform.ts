@@ -5,7 +5,8 @@
 import * as path from "path";
 import * as fs from "fs";
 import type { ScanResult } from "./types";
-import { scanProject, scanResultToMarkdown } from "./analyze";
+import { scanProject } from "./analyze";
+import { transformPlansDir } from "./workspace";
 
 /**
  * Run a scan and output a transform-ready Markdown for Claude Code to use.
@@ -37,8 +38,31 @@ function buildTransformMarkdown(scan: ScanResult): string {
     `- **核心模块:** ${scan.coreModules.join(", ") || "未检测到"}`,
     `- **技术栈:** ${scan.techStack.join(", ") || "未知"}`,
     `- **依赖包:** ${Object.keys(scan.dependencies).length} 个`,
-    `- **高频导入:** ${scan.importExports.topImports.slice(0, 10).join(", ") || "无"}`,
-    `- **高频导出:** ${scan.importExports.topExports.slice(0, 10).join(", ") || "无"}`,
+    `- **导出形态:** ESM default=${scan.importExports.exportStyle.esmDefaultExportFiles}, ESM named=${scan.importExports.exportStyle.esmNamedExportFiles}, CJS=${scan.importExports.exportStyle.cjsExportFiles}`,
+    `- **高频外部导入(含次数):** ${
+      scan.importExports.topExternalImportStats
+        .slice(0, 10)
+        .map((x) => `${x.name}(${x.count})`)
+        .join(", ") || "无"
+    }`,
+    `- **高频内部导入(含次数):** ${
+      scan.importExports.topInternalImportStats
+        .slice(0, 10)
+        .map((x) => `${x.name}(${x.count})`)
+        .join(", ") || "无"
+    }`,
+    `- **高频导出(含次数):** ${
+      scan.importExports.topExportStats
+        .slice(0, 10)
+        .map((x) => `${x.name}(${x.count})`)
+        .join(", ") || "无"
+    }`,
+    `- **高频 re-export 来源(含次数):** ${
+      scan.importExports.topReExportSources
+        .slice(0, 10)
+        .map((x) => `${x.name}(${x.count})`)
+        .join(", ") || "无"
+    }`,
     "",
     `## 文件树`,
     "",
@@ -89,7 +113,7 @@ function buildTransformMarkdown(scan: ScanResult): string {
  * Save transform plan as Markdown.
  */
 export function saveTransformPlan(markdown: string, projectName: string, outputDir?: string): string {
-  const dir = outputDir ?? path.resolve(process.cwd(), "output", "transform-plans");
+  const dir = outputDir ?? transformPlansDir();
   fs.mkdirSync(dir, { recursive: true });
 
   const filePath = path.join(dir, `${projectName}.md`);

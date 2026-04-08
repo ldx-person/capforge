@@ -15,7 +15,8 @@ import { describeProject } from "./describe";
 import { generateTransformScan } from "./transform";
 import { classifyDomains } from "./domain";
 import { validate, printValidationReport } from "./validate";
-import { installSkills, uninstallSkills, checkInstallStatus, CLAUDE_COMMANDS_DIR } from "./install";
+import { installSkills, uninstallSkills, checkInstallStatus, CLAUDE_COMMANDS_DIR, CLAUDE_SKILLS_DIR } from "./install";
+import { resolveWorkspaceRoot } from "./workspace";
 
 const program = new Command();
 
@@ -24,16 +25,31 @@ program
   .description("CapForge（铸能）- 从 GitHub 开源项目中锻造可复用的能力资产")
   .version("1.0.0");
 
+program.option(
+  "-w, --workspace <dir>",
+  "CapForge 工作空间根目录（默认 ~/.capforge；也可用环境变量 CAPFORGE_WORKSPACE 指定）"
+);
+
+function getWorkspaceRoot(): string {
+  // Commander: global options are available via program.opts()
+  const opts = program.opts<{ workspace?: string }>();
+  const root = resolveWorkspaceRoot(opts.workspace);
+  // Ensure all modules see the same workspace in this process (optional but convenient)
+  process.env.CAPFORGE_WORKSPACE = root;
+  return root;
+}
+
 // ---- import ----
 program
   .command("import <repo>")
   .description("克隆 GitHub 仓库到本地 repos/ 目录")
   .option("--no-shallow", "完整克隆（不使用 --depth 1）")
   .action(async (repo: string, opts: { shallow: boolean }) => {
+    const workspaceRoot = getWorkspaceRoot();
     const known = resolveKnownRepo(repo);
     const url = known?.url ?? repo;
     try {
-      const result = await cloneRepo(url, { shallow: opts.shallow });
+      const result = await cloneRepo(url, { shallow: opts.shallow, baseDir: workspaceRoot });
       if (result.alreadyExists) {
         console.log(`Already cloned: ${result.alias} (${result.repoDir})`);
       } else {
@@ -50,7 +66,8 @@ program
   .command("scan <project>")
   .description("扫描已导入项目的代码结构（文件树、依赖、入口文件、模块结构）")
   .action(async (project: string) => {
-    const repoDir = findRepoDir(project);
+    const workspaceRoot = getWorkspaceRoot();
+    const repoDir = findRepoDir(project, workspaceRoot);
     if (!repoDir) {
       console.error(`Project "${project}" not found in repos/. Run "capforge import" first.`);
       process.exit(1);
@@ -69,8 +86,41 @@ program
       console.log(`Source files: ${scan.fileTree.length}`);
       console.log(`Files with exports: ${scan.importExports.filesWithExports}`);
       console.log(`Files with imports: ${scan.importExports.filesWithImports}`);
-      console.log(`Top imports: ${scan.importExports.topImports.slice(0, 10).join(", ") || "none"}`);
-      console.log(`Top exports: ${scan.importExports.topExports.slice(0, 10).join(", ") || "none"}`);
+      console.log(
+        `Export styles: ESM default=${scan.importExports.exportStyle.esmDefaultExportFiles}, ESM named=${scan.importExports.exportStyle.esmNamedExportFiles}, CJS=${scan.importExports.exportStyle.cjsExportFiles}`
+      );
+      console.log(
+        `Top external imports: ${
+          scan.importExports.topExternalImportStats
+            .slice(0, 10)
+            .map((x) => `${x.name}(${x.count})`)
+            .join(", ") || "none"
+        }`
+      );
+      console.log(
+        `Top internal imports: ${
+          scan.importExports.topInternalImportStats
+            .slice(0, 10)
+            .map((x) => `${x.name}(${x.count})`)
+            .join(", ") || "none"
+        }`
+      );
+      console.log(
+        `Top exports: ${
+          scan.importExports.topExportStats
+            .slice(0, 10)
+            .map((x) => `${x.name}(${x.count})`)
+            .join(", ") || "none"
+        }`
+      );
+      console.log(
+        `Top re-export sources: ${
+          scan.importExports.topReExportSources
+            .slice(0, 10)
+            .map((x) => `${x.name}(${x.count})`)
+            .join(", ") || "none"
+        }`
+      );
     } catch (err) {
       console.error(`Scan failed: ${err instanceof Error ? err.message : err}`);
       process.exit(1);
@@ -82,7 +132,8 @@ program
   .command("describe <project>")
   .description("生成项目扫描数据（Markdown），交给 Claude Code 生成 capability.md")
   .action(async (project: string) => {
-    const repoDir = findRepoDir(project);
+    const workspaceRoot = getWorkspaceRoot();
+    const repoDir = findRepoDir(project, workspaceRoot);
     if (!repoDir) {
       console.error(`Project "${project}" not found in repos/.`);
       process.exit(1);
@@ -113,7 +164,8 @@ program
   .command("transform <project>")
   .description("生成改造扫描数据（Markdown），交给 Claude Code 生成改造计划")
   .action(async (project: string) => {
-    const repoDir = findRepoDir(project);
+    const workspaceRoot = getWorkspaceRoot();
+    const repoDir = findRepoDir(project, workspaceRoot);
     if (!repoDir) {
       console.error(`Project "${project}" not found in repos/.`);
       process.exit(1);
@@ -141,6 +193,7 @@ program
   .command("classify-domains")
   .description("列出所有已生成的 capability.md 文件，生成能力域归类摘要")
   .action(() => {
+    getWorkspaceRoot();
     console.log("Listing capability.md files ...");
 
     const { domainsPath, projects } = classifyDomains();
@@ -163,6 +216,7 @@ program
   .description("验证 capability.md 文件是否存在并包含必要部分")
   .option("--repos <repos>", "逗号分隔的短名列表", "agent0,evoskill,hermes-agent,hyperagents,metaclaw,openclaw-rl")
   .action(async (opts: { repos: string }) => {
+    getWorkspaceRoot();
     const repoNames = opts.repos.split(",").map((s) => s.trim());
     console.log(`Validating against repos: ${repoNames.join(", ")} ...\n`);
 
@@ -183,7 +237,8 @@ program
   .command("list")
   .description("列出已导入的项目和已生成的能力描述")
   .action(() => {
-    const cloned = listClonedProjects();
+    const workspaceRoot = getWorkspaceRoot();
+    const cloned = listClonedProjects(workspaceRoot);
     const { listCapabilityFiles } = require("./describe");
     const capabilities = listCapabilityFiles();
 
@@ -231,32 +286,43 @@ program
   .command("status")
   .description("查看 CapForge skill 安装状态")
   .action(() => {
-    const { installed, missing } = checkInstallStatus();
+    const {
+      skillsDir,
+      commandsDir,
+      installedSkills,
+      missingSkills,
+      installedCommands,
+      missingCommands,
+    } = checkInstallStatus();
     console.log("\nCapForge Skills Status:");
-    console.log(`  Claude Code commands dir: ${CLAUDE_COMMANDS_DIR}`);
-    if (installed.length > 0) console.log(`  Installed: ${installed.join(", ")}`);
-    if (missing.length > 0) console.log(`  Missing: ${missing.join(", ")}`);
+    console.log(`  Skills dir (recommended): ${skillsDir ?? CLAUDE_SKILLS_DIR}`);
+    if (installedSkills.length > 0) console.log(`    Installed: ${installedSkills.join(", ")}`);
+    if (missingSkills.length > 0) console.log(`    Missing: ${missingSkills.join(", ")}`);
+
+    console.log(`  Commands dir (legacy): ${commandsDir ?? CLAUDE_COMMANDS_DIR}`);
+    if (installedCommands.length > 0) console.log(`    Installed: ${installedCommands.join(", ")}`);
+    if (missingCommands.length > 0) console.log(`    Missing: ${missingCommands.join(", ")}`);
     console.log();
   });
 
 // ---- helpers ----
 
-function findRepoDir(project: string): string | null {
+function findRepoDir(project: string, workspaceRoot: string): string | null {
   const { resolve } = require("path");
   const { existsSync } = require("fs");
 
   // Try exact name
-  const dir = resolve(process.cwd(), "repos", project);
+  const dir = resolve(workspaceRoot, "repos", project);
   if (existsSync(dir)) return dir;
 
   // Try known repo mapping
   const known = resolveKnownRepo(project);
   if (known) {
-    const knownDir = resolve(process.cwd(), "repos", known.name);
+    const knownDir = resolve(workspaceRoot, "repos", known.name);
     if (existsSync(knownDir)) return knownDir;
 
     // Try shortName as directory
-    const shortDir = resolve(process.cwd(), "repos", known.shortName);
+    const shortDir = resolve(workspaceRoot, "repos", known.shortName);
     if (existsSync(shortDir)) return shortDir;
   }
 

@@ -18,8 +18,53 @@ export interface ImportExportSummary {
   totalFiles: number;
   filesWithExports: number;
   filesWithImports: number;
-  topImports: string[];       // most-imported packages
-  topExports: string[];       // most-exported symbols
+
+  /**
+   * Legacy fields (kept for backward compatibility).
+   * Prefer `topImportStats` / `topExportStats`.
+   */
+  topImports: string[]; // most-imported modules (names only)
+  topExports: string[]; // most-exported symbols (names only)
+
+  /** Detailed import statistics (module -> count) */
+  topImportStats: Array<{ name: string; count: number }>;
+  /** External-only imports (npm/pip packages etc, best-effort) */
+  topExternalImportStats: Array<{ name: string; count: number }>;
+  /** Internal/relative imports (e.g. ./x, ../y, local packages), best-effort */
+  topInternalImportStats: Array<{ name: string; count: number }>;
+  /** Detailed export statistics (symbol -> count) */
+  topExportStats: Array<{ name: string; count: number }>;
+
+  /** Re-export sources (e.g. `export * from "x"`) */
+  topReExportSources: Array<{ name: string; count: number }>;
+
+  /** High-level breakdown for export styles */
+  exportStyle: {
+    esmDefaultExportFiles: number;
+    esmNamedExportFiles: number;
+    cjsExportFiles: number;
+  };
+
+  /**
+   * File-level details (can be large; capped by scanner).
+   * - `imports`: import sources (external + internal)
+   * - `exports`: exported symbol names (best-effort)
+   * - `reExports`: re-export sources (best-effort)
+   */
+  fileDetails: ImportExportFileDetail[];
+}
+
+export interface ImportExportFileDetail {
+  file: string;
+  language: "ts" | "js" | "py" | "go" | "rs" | "other";
+  imports: string[];
+  exports: string[];
+  reExports: string[];
+  exportStyle: {
+    esmDefault: boolean;
+    esmNamed: boolean;
+    cjs: boolean;
+  };
 }
 
 /** Validation result for a single project's capability.md */

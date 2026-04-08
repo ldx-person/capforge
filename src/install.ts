@@ -5,74 +5,154 @@
 import * as path from "path";
 import * as fs from "fs";
 
-export const CLAUDE_COMMANDS_DIR = path.join(
-  process.env.HOME ?? process.env.USERPROFILE ?? "/root",
-  ".claude",
-  "commands"
-);
+const HOME_DIR = process.env.HOME ?? process.env.USERPROFILE ?? "/root";
+export const CLAUDE_DIR = path.join(HOME_DIR, ".claude");
+/**
+ * Legacy custom command location (still supported by Claude Code, but newer versions
+ * recommend installing skills under ~/.claude/skills/<name>/SKILL.md).
+ */
+export const CLAUDE_COMMANDS_DIR = path.join(CLAUDE_DIR, "commands");
+/** Recommended skill location for Claude Code */
+export const CLAUDE_SKILLS_DIR = path.join(CLAUDE_DIR, "skills");
 
-function getSkills(): Record<string, string> {
-  return {
-    "capforge.md": CAPFORGE_SKILL,
-    "capforge-refactor.md": CAPFORGE_REFACTOR_SKILL,
-  };
+type SkillSpec = { name: string; content: string };
+
+function getSkills(): SkillSpec[] {
+  return [
+    { name: "capforge", content: CAPFORGE_SKILL },
+    { name: "capforge-refactor", content: CAPFORGE_REFACTOR_SKILL },
+  ];
 }
 
-const SKILL_NAMES = ["capforge.md", "capforge-refactor.md"];
+const SKILL_NAMES = ["capforge", "capforge-refactor"] as const;
 
-export async function installSkills(options: { force?: boolean }): Promise<void> {
-  const skills = getSkills();
-
-  if (!fs.existsSync(CLAUDE_COMMANDS_DIR)) {
-    fs.mkdirSync(CLAUDE_COMMANDS_DIR, { recursive: true });
-    console.log(`Created: ${CLAUDE_COMMANDS_DIR}`);
+function ensureDir(dir: string): void {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    console.log(`Created: ${dir}`);
   }
+}
 
-  for (const [filename, content] of Object.entries(skills)) {
+function installToSkillsDir(skills: SkillSpec[], options: { force?: boolean }): void {
+  ensureDir(CLAUDE_SKILLS_DIR);
+
+  for (const skill of skills) {
+    const dir = path.join(CLAUDE_SKILLS_DIR, skill.name);
+    ensureDir(dir);
+    const targetPath = path.join(dir, "SKILL.md");
+    const exists = fs.existsSync(targetPath);
+
+    if (exists && !options.force) {
+      console.log(`  [SKIP] skills/${skill.name}/SKILL.md (already exists, use --force to overwrite)`);
+      continue;
+    }
+
+    fs.writeFileSync(targetPath, skill.content, "utf-8");
+    console.log(`  [OK] skills/${skill.name}/SKILL.md -> ${targetPath}`);
+  }
+}
+
+function installToCommandsDir(skills: SkillSpec[], options: { force?: boolean }): void {
+  ensureDir(CLAUDE_COMMANDS_DIR);
+
+  for (const skill of skills) {
+    const filename = `${skill.name}.md`;
     const targetPath = path.join(CLAUDE_COMMANDS_DIR, filename);
     const exists = fs.existsSync(targetPath);
 
     if (exists && !options.force) {
-      console.log(`  [SKIP] ${filename} (already exists, use --force to overwrite)`);
+      console.log(`  [SKIP] commands/${filename} (already exists, use --force to overwrite)`);
       continue;
     }
 
-    fs.writeFileSync(targetPath, content, "utf-8");
-    console.log(`  [OK] ${filename} -> ${targetPath}`);
+    fs.writeFileSync(targetPath, skill.content, "utf-8");
+    console.log(`  [OK] commands/${filename} -> ${targetPath}`);
   }
+}
 
-  console.log("\nDone! Restart Claude Code and use /capforge.");
+export async function installSkills(options: { force?: boolean }): Promise<void> {
+  const skills = getSkills();
+
+  // Install to recommended path first (Claude Code v2+ primarily treats custom commands as skills)
+  installToSkillsDir(skills, options);
+
+  // Also install legacy command files for backward compatibility with older setups
+  installToCommandsDir(skills, options);
+
+  console.log(
+    "\nDone! Please fully restart Claude Code (exit the session/app, then reopen) and use /capforge."
+  );
 }
 
 export async function uninstallSkills(): Promise<void> {
-  for (const filename of SKILL_NAMES) {
+  // Remove skills
+  for (const name of SKILL_NAMES) {
+    const skillDir = path.join(CLAUDE_SKILLS_DIR, name);
+    const skillFile = path.join(skillDir, "SKILL.md");
+    if (fs.existsSync(skillFile)) {
+      fs.unlinkSync(skillFile);
+      console.log(`  [REMOVED] skills/${name}/SKILL.md`);
+    }
+    // best-effort cleanup
+    try {
+      if (fs.existsSync(skillDir) && fs.readdirSync(skillDir).length === 0) {
+        fs.rmdirSync(skillDir);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Remove legacy command files
+  for (const name of SKILL_NAMES) {
+    const filename = `${name}.md`;
     const targetPath = path.join(CLAUDE_COMMANDS_DIR, filename);
     if (fs.existsSync(targetPath)) {
       fs.unlinkSync(targetPath);
-      console.log(`  [REMOVED] ${filename}`);
-    } else {
-      console.log(`  [SKIP] ${filename} (not found)`);
+      console.log(`  [REMOVED] commands/${filename}`);
     }
   }
+
   console.log("\nDone.");
 }
 
-export function checkInstallStatus(): { installed: string[]; missing: string[] } {
-  const installed: string[] = [];
-  const missing: string[] = [];
-  for (const filename of SKILL_NAMES) {
-    if (fs.existsSync(path.join(CLAUDE_COMMANDS_DIR, filename))) {
-      installed.push(filename);
-    } else {
-      missing.push(filename);
-    }
+export function checkInstallStatus(): {
+  skillsDir: string;
+  commandsDir: string;
+  installedSkills: string[];
+  missingSkills: string[];
+  installedCommands: string[];
+  missingCommands: string[];
+} {
+  const installedSkills: string[] = [];
+  const missingSkills: string[] = [];
+  const installedCommands: string[] = [];
+  const missingCommands: string[] = [];
+
+  for (const name of SKILL_NAMES) {
+    const skillFile = path.join(CLAUDE_SKILLS_DIR, name, "SKILL.md");
+    if (fs.existsSync(skillFile)) installedSkills.push(name);
+    else missingSkills.push(name);
+
+    const cmdFile = path.join(CLAUDE_COMMANDS_DIR, `${name}.md`);
+    if (fs.existsSync(cmdFile)) installedCommands.push(name);
+    else missingCommands.push(name);
   }
-  return { installed, missing };
+
+  return {
+    skillsDir: CLAUDE_SKILLS_DIR,
+    commandsDir: CLAUDE_COMMANDS_DIR,
+    installedSkills,
+    missingSkills,
+    installedCommands,
+    missingCommands,
+  };
 }
 
 // ---- Embedded Skill Content ----
 
 const CAPFORGE_SKILL = `---
+name: capforge
 description: Analyze GitHub projects, extract capabilities, generate transform plans, and optionally execute refactoring
 argument-hint: <github-url-or-command> [--force]
 ---
@@ -126,6 +206,7 @@ When user builds new project or adds feature, scan output/domains.md and output/
 `;
 
 const CAPFORGE_REFACTOR_SKILL = `---
+name: capforge-refactor
 description: Execute a CapForge transform plan to refactor a project
 argument-hint: <project-name>
 ---

@@ -8,7 +8,7 @@
     "capforge": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc && cp -r src/skills dist/skills",
+    "build": "tsc",
     "start": "node dist/cli.js",
     "dev": "ts-node src/cli.ts"
   },

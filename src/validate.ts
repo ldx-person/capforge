@@ -9,6 +9,7 @@ import type { KnownRepo } from "./types";
 import { listCapabilityFiles, loadCapabilityFile } from "./describe";
 import type { CapabilityValidation, ValidationReport } from "./types";
 import { REQUIRED_SECTIONS } from "./types";
+import { outputDir as outputDirFromWorkspace } from "./workspace";
 
 /**
  * Validate that capability.md files exist and contain expected sections.
@@ -40,7 +41,7 @@ export async function validate(
   };
 
   // Save report as Markdown
-  const dir = outputDir ?? path.resolve(process.cwd(), "output");
+  const dir = outputDir ?? outputDirFromWorkspace();
   fs.mkdirSync(dir, { recursive: true });
   const reportMd = buildValidationReportMarkdown(report);
   fs.writeFileSync(path.join(dir, "validation-report.md"), reportMd, "utf-8");

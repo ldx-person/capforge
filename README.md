@@ -1,5 +1,7 @@
 # CapForge（铸能）
 
+[English](README_EN.md) | 中文
+
 从 GitHub 开源项目中锻造可复用的能力资产。
 
 ## 为什么需要 CapForge？

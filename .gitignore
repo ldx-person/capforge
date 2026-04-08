@@ -1,7 +1,13 @@
 node_modules/
 dist/
 repos/
-output/
 *.log
 .DS_Store
 .remember/
+
+# 但保留示例输出
+!output/
+!output/capabilities/
+!output/transform-plans/
+!output/domains.md
+!output/validation-report.md

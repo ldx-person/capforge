@@ -9,6 +9,8 @@ import {
   listClonedProjects,
   projectAliasFromUrl,
   resolveKnownRepo,
+  updateAllRepos,
+  updateRepo,
 } from "./import";
 import { scanProject, scanResultToMarkdown } from "./analyze";
 import { describeProject } from "./describe";
@@ -302,6 +304,48 @@ program
       console.log();
     } catch (err) {
       console.error(`Pipeline failed: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    }
+  });
+
+// ---- update ----
+program
+  .command("update [project]")
+  .description("检查 GitHub 是否有新变更，并对已导入项目做增量更新（git fetch/pull --ff-only）")
+  .option("--all", "更新当前工作空间下的全部已导入项目")
+  .option("--force-update", "强制更新（会丢弃本地改动，危险）")
+  .action(async (project: string | undefined, opts: { all?: boolean; forceUpdate?: boolean }) => {
+    const workspaceRoot = getWorkspaceRoot();
+    try {
+      if (opts.all) {
+        const results = await updateAllRepos({ baseDir: workspaceRoot, forceUpdate: !!opts.forceUpdate });
+        const updated = results.filter((r) => r.updated).length;
+        const skipped = results.filter((r) => r.skipped).length;
+        console.log(`\nUpdated ${updated}/${results.length} repos. Skipped: ${skipped}\n`);
+        for (const r of results) {
+          const status = r.updated ? "UPDATED" : r.skipped ? "SKIPPED" : "OK";
+          console.log(`[${status}] ${r.project} — ${r.message}`);
+        }
+        console.log();
+        return;
+      }
+
+      if (!project) {
+        console.error('Please provide a project name, or use "capforge update --all".');
+        process.exit(1);
+      }
+
+      const repoDir = findRepoDir(project, workspaceRoot);
+      if (!repoDir) {
+        console.error(`Project "${project}" not found in repos/. Run "capforge import" first.`);
+        process.exit(1);
+      }
+
+      const result = await updateRepo(repoDir, { force: !!opts.forceUpdate });
+      const status = result.updated ? "UPDATED" : result.skipped ? "SKIPPED" : "OK";
+      console.log(`[${status}] ${project} — ${result.message}`);
+    } catch (err) {
+      console.error(`Update failed: ${err instanceof Error ? err.message : err}`);
       process.exit(1);
     }
   });

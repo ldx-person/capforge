@@ -180,6 +180,24 @@ argument-hint: <github-url-or-command> [--force]
 
 如果 Compare/Analyze 都可能成立（高歧义），再追问一句确认；否则直接执行。
 
+### C) 全量更新（Update 模式）
+
+满足任一条件视为 Update：
+- 用户明确要求：更新项目/同步最新/pull 最新/检查更新/全量更新
+- 用户说“把所有已导入项目都更新一下”
+
+Update 模式必须优先执行：
+
+~~~bash
+npx capforge update --all
+~~~
+
+并把输出摘要（更新了哪些、跳过了哪些及原因）反馈给用户。若用户只想更新某一个项目，则执行：
+
+~~~bash
+npx capforge update <project>
+~~~
+
 ## One-Shot Pipeline
 
 当判定为 **Analyze 模式** 时，执行以下一键流水线（尽量自动完成全部步骤）：

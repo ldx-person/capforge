@@ -124,7 +124,7 @@ export function listClonedProjects(baseDir?: string): string[] {
   });
 }
 
-async function updateRepo(
+export async function updateRepo(
   repoDir: string,
   opts: { force: boolean }
 ): Promise<{ updated: boolean; skipped: boolean; message: string }> {
@@ -149,11 +149,32 @@ async function updateRepo(
     // Fetch updates
     await execAsync(`git -C ${quote(repoDir)} fetch --all --prune`, { timeout: 300_000 });
 
+    // Detect if upstream exists and whether remote is ahead (best-effort)
+    // If upstream is missing, pull may fail; we still try a safe pull.
+    let behindAhead: string | null = null;
+    try {
+      const { stdout } = await execAsync(
+        `git -C ${quote(repoDir)} rev-list --left-right --count HEAD...@{upstream}`,
+        { timeout: 60_000 }
+      );
+      behindAhead = stdout.trim(); // format: "<behind>\t<ahead>"
+    } catch {
+      // ignore
+    }
+
     // Pull fast-forward only (safe default)
     const pullCmd = `git -C ${quote(repoDir)} pull --ff-only`;
     try {
       const { stdout: pullOut, stderr: pullErr } = await execAsync(pullCmd, { timeout: 300_000 });
       const msg = (pullOut || pullErr || "").trim() || "Updated.";
+      // If behindAhead indicates behind=0, then it's effectively no-op update.
+      if (behindAhead) {
+        const parts = behindAhead.split(/\s+/);
+        const behind = Number.parseInt(parts[0] ?? "0", 10);
+        if (!Number.isNaN(behind) && behind === 0 && msg.toLowerCase().includes("already up to date")) {
+          return { updated: false, skipped: false, message: msg };
+        }
+      }
       return { updated: true, skipped: false, message: msg };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -172,4 +193,35 @@ async function updateRepo(
 function quote(p: string): string {
   // simple shell quoting for paths
   return `'${p.replace(/'/g, "'\\''")}'`;
+}
+
+export async function updateAllRepos(options?: {
+  baseDir?: string;
+  forceUpdate?: boolean;
+}): Promise<
+  Array<{
+    project: string;
+    repoDir: string;
+    updated: boolean;
+    skipped: boolean;
+    message: string;
+  }>
+> {
+  const baseDir = options?.baseDir;
+  const projects = listClonedProjects(baseDir);
+  const results: Array<{
+    project: string;
+    repoDir: string;
+    updated: boolean;
+    skipped: boolean;
+    message: string;
+  }> = [];
+
+  for (const project of projects) {
+    const repoDir = path.join(reposDir(baseDir), project);
+    const r = await updateRepo(repoDir, { force: !!options?.forceUpdate });
+    results.push({ project, repoDir, updated: r.updated, skipped: r.skipped, message: r.message });
+  }
+
+  return results;
 }

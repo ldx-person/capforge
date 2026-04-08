@@ -17,6 +17,7 @@ import { classifyDomains } from "./domain";
 import { validate, printValidationReport } from "./validate";
 import { installSkills, uninstallSkills, checkInstallStatus, CLAUDE_COMMANDS_DIR, CLAUDE_SKILLS_DIR } from "./install";
 import { resolveWorkspaceRoot } from "./workspace";
+import { runPipeline } from "./pipeline";
 
 const program = new Command();
 const pkg = require("../package.json") as { version?: string };
@@ -236,6 +237,57 @@ program
       console.log(`  - ${project}`);
     }
     console.log(`\nDomains summary saved to: ${domainsPath}`);
+  });
+
+// ---- pipeline ----
+program
+  .command("pipeline")
+  .description("执行确定性流水线（用于 OpenClaw/Claude Code 自动化）：analyze 或 compare")
+  .option("--mode <mode>", "analyze|compare", "analyze")
+  .option("--repo <repo>", "单个仓库（URL 或已导入项目名）")
+  .option("--repos <repos>", "多个仓库（逗号分隔，或重复传参）")
+  .option("--topic <topic>", "compare 模式下对比主题/需求摘要")
+  .option("--no-transform", "analyze 模式下不生成 transform 扫描（仅 scan/describe/domains/validate）")
+  .option("--ignore-license", "忽略许可证门禁（不推荐，需自行确保合规）")
+  .option("--no-validate", "跳过 validate（不推荐）")
+  .action(async (opts: any) => {
+    const workspaceRoot = getWorkspaceRoot();
+    const mode = String(opts.mode ?? "analyze") as "analyze" | "compare";
+    const repos =
+      typeof opts.repos === "string"
+        ? opts.repos.split(",").map((s: string) => s.trim()).filter(Boolean)
+        : Array.isArray(opts.repos)
+          ? opts.repos
+          : [];
+
+    try {
+      const result = await runPipeline({
+        workspaceRoot,
+        mode,
+        repo: opts.repo,
+        repos,
+        topic: opts.topic,
+        withTransform: opts.transform !== false,
+        ignoreLicense: !!opts.ignoreLicense,
+        withValidate: opts.validate !== false,
+      });
+
+      console.log("\n=== Pipeline Result ===\n");
+      console.log(`Mode: ${result.mode}`);
+      console.log(`Workspace: ${result.workspaceRoot}`);
+      console.log(`Projects: ${result.projects.map((p) => p.name).join(", ")}`);
+      if (result.comparisonReportPath) console.log(`Comparison report: ${result.comparisonReportPath}`);
+      if (result.domainsPath) console.log(`Domains: ${result.domainsPath}`);
+      if (result.validationReportPath) console.log(`Validation report: ${result.validationReportPath}`);
+      if (result.notes.length > 0) {
+        console.log("\nNotes:");
+        for (const n of result.notes) console.log(`- ${n}`);
+      }
+      console.log();
+    } catch (err) {
+      console.error(`Pipeline failed: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    }
   });
 
 // ---- validate ----

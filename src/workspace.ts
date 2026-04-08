@@ -48,3 +48,10 @@ export function transformPlansDir(workspace?: string): string {
   return path.join(outputDir(workspace), "transform-plans");
 }
 
+export function comparisonsDir(workspace?: string): string {
+  return path.join(outputDir(workspace), "comparisons");
+}
+
+export function pipelineDir(workspace?: string): string {
+  return path.join(outputDir(workspace), "pipeline");
+}

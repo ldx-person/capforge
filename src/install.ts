@@ -184,13 +184,13 @@ argument-hint: <github-url-or-command> [--force]
 
 当判定为 **Analyze 模式** 时，执行以下一键流水线（尽量自动完成全部步骤）：
 
-\\\`\\\`\\\`bash
-# Step 1: Clone + scan
-npx capforge import <github-url>
-npx capforge scan <project-name>
-\\\`\\\`\\\`
+# （为避免不同宿主对 Markdown 转义的差异，这里使用 ~~~ 代码块）
+~~~bash
+# 推荐：使用确定性流水线（强约束，适合 OpenClaw 自动化）
+npx capforge pipeline --mode analyze --repo <github-url>
+~~~
 
-Then read the scan output and source code, and generate ALL three artifacts:
+然后读取扫描输出与源码，生成/完善产物：
 
 **Step 2: Generate capability.md** → \\\`output/capabilities/<project>.md\\\`
 
@@ -217,6 +217,12 @@ Read ALL capability.md, classify into multi-domains. Each domain: 参与项目, 
 ## 横向对比/选型（Compare 模式）
 
 当判定为 Compare 模式时，目标是输出一份“可决策”的对比报告，并尽量减少用户交互。
+
+优先使用确定性流水线来保证“步骤不遗漏、产物一定落盘”：
+
+~~~bash
+npx capforge pipeline --mode compare --repos <repo1,repo2,...> --topic "<需求摘要>"
+~~~
 
 ### 输入形态
 - 用户给出候选列表（URL/短名）：直接使用

@@ -153,15 +153,36 @@ export function checkInstallStatus(): {
 
 const CAPFORGE_SKILL = `---
 name: capforge
-description: Analyze GitHub projects, extract capabilities, generate transform plans, and optionally execute refactoring
+description: Analyze GitHub projects, extract capabilities, generate transform plans, and support cross-project comparison/selection
 argument-hint: <github-url-or-command> [--force]
 ---
 
-Use CapForge to analyze GitHub projects, extract reusable capabilities, generate transform plans, and optionally execute refactoring.
+使用 CapForge 来分析 GitHub 项目、提取可复用能力、生成改造计划，并支持“多项目横向对比/选型”（自然语言意图路由）。
+
+> 重要：CapForge 默认工作空间为 ~/.capforge（或环境变量 CAPFORGE_WORKSPACE / CLI 参数 --workspace 指定）。
+
+## 意图路由（自然语言）
+
+你必须先根据用户的自然语言输入判断意图，并用一句话告知用户你将执行的模式：
+
+### A) 横向对比/选型（Compare 模式）
+
+满足任一条件视为 Compare：
+- 用户明确要求：对比/比较/横向/选型/推荐/哪个好/差异/评估/竞品
+- 用户给出 ≥2 个候选项目（多个 URL/多个 repo 名）
+- 用户只描述需求（“我想做 X，帮我选合适的项目/方案”）
+
+### B) 单项目分析/产物生成（Analyze 模式）
+
+满足以下条件通常为 Analyze：
+- 输入只涉及 1 个项目（一个 URL 或一个短名）
+- 用户要：scan/describe/transform/validate/生成能力描述/生成改造计划
+
+如果 Compare/Analyze 都可能成立（高歧义），再追问一句确认；否则直接执行。
 
 ## One-Shot Pipeline
 
-When the user asks to import/analyze a project, execute ALL steps automatically:
+当判定为 **Analyze 模式** 时，执行以下一键流水线（尽量自动完成全部步骤）：
 
 \\\`\\\`\\\`bash
 # Step 1: Clone + scan
@@ -190,6 +211,41 @@ Read ALL capability.md, classify into multi-domains. Each domain: 参与项目, 
 **Step 6: Ask user** — 全部执行 / 只执行高优先级 / 不执行？
 
 **Step 7: Execute if confirmed** — modify repos/<project>/, then re-run Steps 2-5.
+
+> License 门禁：如果目标项目许可证为“未知/无许可证/强 copyleft（GPL/AGPL）”，CapForge 默认会阻止生成改造扫描/计划。除非用户明确确认已完成合规评审，否则不要指导用户使用 --ignore-license。
+
+## 横向对比/选型（Compare 模式）
+
+当判定为 Compare 模式时，目标是输出一份“可决策”的对比报告，并尽量减少用户交互。
+
+### 输入形态
+- 用户给出候选列表（URL/短名）：直接使用
+- 用户只给需求描述：从现有能力库（output/domains.md + output/capabilities/*.md）召回候选；候选不足时，再请用户补充 3-8 个项目 URL/名称
+
+### 执行步骤（尽量自动）
+1. 对每个候选项目执行（或确保已存在）：
+   - npx capforge import <url>
+   - npx capforge scan <name>
+   - npx capforge describe <name>（必要时你需要将该 md 改写为“真正 capability.md”，保证章节齐全）
+2. 生成/更新 npx capforge classify-domains，确保 output/domains.md 最新
+3. 输出对比报告到：
+   - output/comparisons/<topic>.md
+
+### 输出文件命名规则（你来定，需稳定）
+- 如果用户明确给了主题（例如“选型 agent runtime”）：将主题转成 kebab-case 作为 <topic>
+- 否则使用：comparison-YYYYMMDD-HHMM
+
+### 对比报告必须包含的章节（硬性要求）
+1. **需求摘要**（用户要解决什么）
+2. **候选项目清单**（版本/技术栈/入口/核心模块）
+3. **License 风险与改造可行性**（逐项目列出：SPDX、是否允许改造、原因、提醒）
+4. **能力矩阵**（能力簇 × 项目，至少以 capability.md 的“核心能力”作为维度；标题不一致时允许你合并同义项并标注依据）
+5. **集成成本评估**（依赖、侵入性、扩展点、配置复杂度）
+6. **结论与推荐**（Top 1-3 + 适用场景 + 不适用场景 + 风险）
+
+### 强制提醒（必须写入结论）
+- CapForge 不提供法律意见；license 合规需人工审查
+- 对“默认禁止改造”的候选：推荐时必须降权并明确标注“仅可参考，不建议抽取复用/分发”
 
 ## Capability Lookup (Auto-Trigger)
 

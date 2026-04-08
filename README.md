@@ -107,6 +107,15 @@ npx capforge scan hermes-agent
 # 4. 开发新功能时自动检索已有能力库（自动触发）
 ```
 
+### Claude Code：自然语言选型/对比用法
+
+`/capforge` 支持自然语言意图路由：你可以直接用“对比/选型/推荐”式提问，Claude 会自动进入横向对比模式并输出对比报告（默认写入 `output/comparisons/`）。
+
+示例：
+
+- “我想做一个支持工具调用 + 长期记忆的 agent runtime，帮我在 Hyperagents / MetaClaw / OpenClaw 里选一个，并解释原因”
+- “对比 agent-zero 和 Hyperagents：能力差异、集成成本、license 风险，给出推荐结论”
+
 ### 工作空间（Workspace）
 
 CapForge 会把**克隆仓库（repos）**和**生成的 Markdown（output）**统一放到同一个工作空间目录下，避免你在不同目录运行命令导致产物分散。

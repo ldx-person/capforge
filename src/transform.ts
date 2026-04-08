@@ -38,6 +38,7 @@ function buildTransformMarkdown(scan: ScanResult): string {
     `- **核心模块:** ${scan.coreModules.join(", ") || "未检测到"}`,
     `- **技术栈:** ${scan.techStack.join(", ") || "未知"}`,
     `- **依赖包:** ${Object.keys(scan.dependencies).length} 个`,
+    `- **许可证:** ${scan.license.spdxId ?? scan.license.label}（${scan.license.policy.allowTransform ? "默认允许改造" : "默认禁止改造"}；原因：${scan.license.policy.reason}）`,
     `- **导出形态:** ESM default=${scan.importExports.exportStyle.esmDefaultExportFiles}, ESM named=${scan.importExports.exportStyle.esmNamedExportFiles}, CJS=${scan.importExports.exportStyle.cjsExportFiles}`,
     `- **高频外部导入(含次数):** ${
       scan.importExports.topExternalImportStats
@@ -87,6 +88,10 @@ function buildTransformMarkdown(scan: ScanResult): string {
     "---",
     "",
     "将以上扫描数据交给 Claude Code，让它生成改造计划。",
+    "",
+    "## License / 合规提醒（必须处理）",
+    ...scan.license.policy.reminders.map((r) => `- ${r}`),
+    "",
     "改造计划应包含以下结构：",
     "",
     "```markdown",

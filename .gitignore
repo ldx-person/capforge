@@ -5,3 +5,8 @@ output/
 *.log
 .DS_Store
 .remember/
+# Claude Code 本地配置（不提交）
+.claude/
+# 不发布到 GitHub（仅本地/发布到 ClawHub 时可保留）
+clawhub/skills/capforge/README.md
+clawhub/skills/capforge-refactor/README.md

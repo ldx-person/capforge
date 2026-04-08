@@ -11,6 +11,24 @@ export interface ScanResult {
   techStack: string[];
   fileTree: string[];
   importExports: ImportExportSummary;
+  license: LicenseScanResult;
+}
+
+export interface LicenseScanResult {
+  /** SPDX ID if detected; otherwise null */
+  spdxId: string | null;
+  /** Display label (fallback if SPDX can't be detected) */
+  label: string;
+  source: "license-file" | "package-json" | "unknown";
+  filePath?: string;
+  confidence: "high" | "medium" | "low";
+  policy: {
+    allowTransform: boolean;
+    risk: "low" | "medium" | "high";
+    reason: string;
+    reminders: string[];
+  };
+  notes: string[];
 }
 
 /** Summary of imports/exports found in source files */

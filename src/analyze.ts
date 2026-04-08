@@ -6,6 +6,7 @@ import * as path from "path";
 import * as fs from "fs";
 import { glob } from "glob";
 import type { ScanResult, ImportExportSummary, ImportExportFileDetail } from "./types";
+import { detectLicense } from "./license";
 
 /**
  * Perform pure structural analysis of a cloned project.
@@ -18,6 +19,7 @@ export async function scanProject(repoDir: string, projectName: string): Promise
   const dependencyMap = parseDependencies(repoDir);
   const techStack = inferTechStack(repoDir, dependencyMap, fileTree);
   const importExports = scanImportExports(repoDir, fileTree);
+  const { info, policy } = detectLicense(repoDir);
 
   return {
     projectName,
@@ -27,6 +29,20 @@ export async function scanProject(repoDir: string, projectName: string): Promise
     techStack,
     fileTree,
     importExports,
+    license: {
+      spdxId: info.spdxId,
+      label: info.label,
+      source: info.source,
+      filePath: info.filePath,
+      confidence: info.confidence,
+      notes: info.notes,
+      policy: {
+        allowTransform: policy.allowTransform,
+        risk: policy.risk,
+        reason: policy.reason,
+        reminders: policy.reminders,
+      },
+    },
   };
 }
 
@@ -100,6 +116,25 @@ export function scanResultToMarkdown(result: ScanResult): string {
         .map((x) => `${x.name}(${x.count})`)
         .join(", ") || "无"
     }`
+  );
+
+  lines.push("", "## License / 合规提醒", "");
+  lines.push(
+    `- **检测到的许可证:** ${result.license.spdxId ?? result.license.label}（来源: ${result.license.source}, 置信度: ${result.license.confidence}）`
+  );
+  if (result.license.filePath) {
+    lines.push(`- **许可证文件:** ${result.license.filePath}`);
+  }
+  lines.push(`- **改造支持:** ${result.license.policy.allowTransform ? "允许（默认）" : "默认禁止"}`);
+  lines.push(`- **原因:** ${result.license.policy.reason}`);
+  if (result.license.policy.reminders.length > 0) {
+    lines.push(`- **提醒:**`);
+    for (const r of result.license.policy.reminders) lines.push(`  - ${r}`);
+  }
+  lines.push(
+    "",
+    "> 注意：CapForge 只做结构扫描与提示，不提供法律意见。最终是否改造/分发请以许可证文本与合规审查为准。",
+    ""
   );
 
   lines.push("", "---", "");

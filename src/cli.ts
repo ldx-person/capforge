@@ -19,11 +19,12 @@ import { installSkills, uninstallSkills, checkInstallStatus, CLAUDE_COMMANDS_DIR
 import { resolveWorkspaceRoot } from "./workspace";
 
 const program = new Command();
+const pkg = require("../package.json") as { version?: string };
 
 program
   .name("capforge")
   .description("CapForge（铸能）- 从 GitHub 开源项目中锻造可复用的能力资产")
-  .version("1.0.0");
+  .version(pkg.version ?? "0.0.0");
 
 program.option(
   "-w, --workspace <dir>",
@@ -86,6 +87,12 @@ program
       console.log(`Source files: ${scan.fileTree.length}`);
       console.log(`Files with exports: ${scan.importExports.filesWithExports}`);
       console.log(`Files with imports: ${scan.importExports.filesWithImports}`);
+      console.log(
+        `License: ${scan.license.spdxId ?? scan.license.label} (source=${scan.license.source}, confidence=${scan.license.confidence})`
+      );
+      console.log(
+        `Transform allowed: ${scan.license.policy.allowTransform ? "yes" : "no"} (reason: ${scan.license.policy.reason})`
+      );
       console.log(
         `Export styles: ESM default=${scan.importExports.exportStyle.esmDefaultExportFiles}, ESM named=${scan.importExports.exportStyle.esmNamedExportFiles}, CJS=${scan.importExports.exportStyle.cjsExportFiles}`
       );
@@ -163,7 +170,8 @@ program
 program
   .command("transform <project>")
   .description("生成改造扫描数据（Markdown），交给 Claude Code 生成改造计划")
-  .action(async (project: string) => {
+  .option("--ignore-license", "忽略许可证限制（不推荐，需自行确保合规）")
+  .action(async (project: string, opts: { ignoreLicense?: boolean }) => {
     const workspaceRoot = getWorkspaceRoot();
     const repoDir = findRepoDir(project, workspaceRoot);
     if (!repoDir) {
@@ -174,6 +182,26 @@ program
     console.log(`Generating transform scan data for ${project} ...`);
 
     try {
+      // License gate: by default we don't generate transform plans for unknown/strong-copyleft licenses.
+      const licenseScan = await scanProject(repoDir, project);
+      if (!licenseScan.license.policy.allowTransform && !opts.ignoreLicense) {
+        console.error(
+          [
+            "",
+            `⚠️ License gate: ${licenseScan.license.spdxId ?? licenseScan.license.label}`,
+            `Reason: ${licenseScan.license.policy.reason}`,
+            "Reminders:",
+            ...licenseScan.license.policy.reminders.map((r) => `- ${r}`),
+            "",
+            "Transform scan is blocked by default for this license.",
+            "If you have completed license compliance review and still want to proceed, rerun with:",
+            `  npx capforge --workspace ${workspaceRoot} transform ${project} --ignore-license`,
+            "",
+          ].join("\n")
+        );
+        process.exit(1);
+      }
+
       const { scan, filePath } = await generateTransformScan(repoDir, project);
 
       console.log(`\nTransform scan saved to: ${filePath}`);
